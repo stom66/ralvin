@@ -152,13 +152,14 @@ fi
 
 # Check we have a sudo user account name to create
 if [ -z "$SUDO_USER" ]; then
-	read -e -p "|| Enter a name for the sudo user account: " -i "rocky" SUDO_USER
+	SUDO_USER="rocky"
+	read -e -p "|| Enter a name for the sudo user account: " -i "${SUDO_USER}" SUDO_USER
 fi
 
 # Check we have a password to use for the Virtualmin admin
 if [ -z "$SUDO_PASSWORD" ]; then
 	SUDO_PASSWORD=$(date +%s|sha256sum|base64|head -c 32)
-	read -e -p "|| Enter a password for the Virtualmin admin panel: " -i "${SUDO_PASSWORD}" SUDO_PASSWORD
+	read -e -p "|| Enter a password for the sudo user account: " -i "${SUDO_PASSWORD}" SUDO_PASSWORD
 fi
 
 # Check we have a user to set the password for

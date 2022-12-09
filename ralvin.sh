@@ -16,18 +16,17 @@ fi
 # ███████║███████╗   ██║   ╚██████╔╝██║          ╚████╔╝ ██║  ██║██║  ██║███████║
 # ╚══════╝╚══════╝   ╚═╝    ╚═════╝ ╚═╝           ╚═══╝  ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
 #                                                                                
-declare -l DOMAIN
-declare PUBKEY
-declare SUDO_USER
-declare SUDO_PASSWORD
-declare VMIN_USER
-declare VMIN_PASSWORD
-declare MYSQL_PASSWORD
-declare WEBMIN_PASSWORD
-declare AWS_ACCESS_KEY
-declare AWS_SECRET_KEY
+declare -l fqdn_hostname
+declare sudo_user_pubkey
+declare sudo_user_name
+declare sudo_user_password
+declare virtualmin_user_name
+declare virtualmin_password
+declare myqsl_root_password
+declare aws_access_key
+declare aws_secret_key
 
-declare AWS_PORTS=(22 25 80 443 465 587 993 10000 20000)
+declare -a aws_firewall_ports=(22 25 80 443 465 587 993 10000 20000)
 
 
 
@@ -49,72 +48,56 @@ while [ $# -gt 0 ]; do
 			echo "Options:"
 			echo "  -h, --help                                show brief help"
 			echo "  -d, --domain [domain.tld]                 specify an FQDN to use as the system hostname"
-			echo "  -k, --pubkey [valid pubkey]               specify an public key to be added to the authorized_keys file"
-			echo "  -su, --sudo-user [root]                   specify a username to add a sudo account to"
-			echo "  -sp, --sudo-password [mypassword]         specify a password for the sudo account"
+			echo "  -suk, --sudo-user-pubkey [valid pubkey]     specify an public key to be added to the authorized_keys file for the sudo user"
+			echo "  -suu, --sudo-user-name [root]                   specify a user account to use (or create) as the sudo account"
+			echo "  -sup, --sudo-user-password [mypassword]         specify a password for the sudo account"
 			echo "  -vu, --virtualmin-user [root]             specify a user to enable the Vitualmin admin panel password for"
 			echo "  -vp, --virtualmin-password [mypassword]   specify a password to use for the Virtualmin admin panel"
 			echo "  -mp, --mysql-password [mypassword]        specify a password to use for the MySQL root user"
-			echo "  -wp, --webmin-password [mypassword]       specify a password to use for the default domain user"
 			echo "  -a, --aws-access-key [key]                optional: aws access key to use for aws-cli"
 			echo "  -s, --aws-secret-key [key]                optional: aws secret key to use for aws-cli"
 			echo "  -ss, --ssh-port [number]                  optional: a custom port to use for the ssh server"
 			exit 0
 			;;
 		-d|--domain)
-			DOMAIN="$2"
-			shift
-			shift
+			fqdn_hostname="$2"
+			shift 2
 			;;
-		-k|--pubkey)
-			PUBKEY="$2"
-			shift
-			shift
+		-suk|--sudo-user-pubkey)
+			sudo_user_pubkey="$2"
+			shift 2
 			;;
 		-vu|--virtualmin-user)
-			VMIN_USER="$2"
-			shift
-			shift
+			virtualmin_user_name="$2"
+			shift 2
+			;;
+		-suu|--sudo-user-name)
+			sudo_user_name="$2"
+			shift 2
+			;;
+		-sup|--sudo-password)
+			sudo_user_password="$2"
+			shift 2
 			;;
 		-vp|--virtualmin-password)
-			VMIN_PASSWORD="$2"
-			shift
-			shift
-			;;
-		-su|--sudo-user)
-			SUDO_USER="$2"
-			shift
-			shift
-			;;
-		-sp|--sudo-password)
-			SUDO_PASSWORD="$2"
-			shift
-			shift
+			virtualmin_password="$2"
+			shift 2
 			;;
 		-mp|--mysql-password)
-			MYSQL_PASSWORD="$2"
-			shift
-			shift
-			;;
-		-wp|--webmin-password)
-			WEBMIN_PASSWORD="$2"
-			shift
-			shift
+			myqsl_root_password="$2"
+			shift 2
 			;;
 		-a|--aws-access-key)
-			AWS_ACCESS_KEY="$2"
-			shift
-			shift
+			aws_access_key="$2"
+			shift 2
 			;;
 		-s|--aws-secret-key)
-			AWS_SECRET_KEY="$2"
-			shift
-			shift
+			aws_secret_key="$2"
+			shift 2
 			;;
 		-ss|--ssh-port)
-			SSH_PORT="$2"
-			shift
-			shift
+			ssh_custom_port="$2"
+			shift 2
 			;;
 		*)
 			break
@@ -135,70 +118,64 @@ printf "\n|| Starting RALVIN. Checking config \n"
 printf "|| ================================ \n"
 
 # Check we have a domain to use for configuration, prompt if not
-if [ -z "$DOMAIN" ]; then
-	read -e -p "|| Enter a valid FQDN: " -i "example.com" DOMAIN
+if [ -z "$fqdn_hostname" ]; then
+	read -e -p "|| Enter a valid FQDN: " -i "example.com" fqdn_hostname
 fi
 
 # Quit out if the user failed to provide a FQDN
-if [ -z "$DOMAIN" ]; then
+if [ -z "$fqdn_hostname" ]; then
 	printf "|| You must specify a FQDN. Script is exiting.\n\n"
 	exit 0
 fi
 
 # Check if we're using a pubkey, or request one
-if [ -z "$PUBKEY" ]; then
-	read -e -p "|| Enter an optional public key to install: " -i "${PUBKEY}" PUBKEY
+if [ -z "$sudo_user_pubkey" ]; then
+	read -e -p "|| Enter an optional public key to install: " -i "${sudo_user_pubkey}" PUBKEY
 fi
 
 # Check we have a sudo user account name to create
-if [ -z "$SUDO_USER" ]; then
-	SUDO_USER="rocky"
-	read -e -p "|| Enter a name for the sudo user account: " -i "${SUDO_USER}" SUDO_USER
+if [ -z "$sudo_user_name" ]; then
+	sudo_user_name="rocky"
+	read -e -p "|| Enter a name for the sudo user account: " -i "${sudo_user_name}" sudo_user_name
 fi
 
 # Check we have a password to use for the Virtualmin admin
-if [ -z "$SUDO_PASSWORD" ]; then
-	SUDO_PASSWORD=$(date +%s|sha256sum|base64|head -c 32)
-	read -e -p "|| Enter a password for the sudo user account: " -i "${SUDO_PASSWORD}" SUDO_PASSWORD
+if [ -z "$sudo_user_password" ]; then
+	sudo_user_password=$(date +%s|sha256sum|base64|head -c 32)
+	read -e -p "|| Enter a password for the sudo user account: " -i "${sudo_user_password}" sudo_user_password
 fi
 
 # Check we have a user to set the password for
-if [ -z "$VMIN_USER" ]; then
-	read -e -p "|| Enter a valid user to grant access to the Virtualmin admin panel: " -i "root" VMIN_USER
+if [ -z "$virtualmin_user_name" ]; then
+	read -e -p "|| Enter a valid user to grant access to the Virtualmin admin panel: " -i "root" virtualmin_user_name
 fi
 
 # Check we have a password to use for the Virtualmin admin
-if [ -z "$VMIN_PASSWORD" ]; then
-	VMIN_PASSWORD=$(date +%s|sha256sum|base64|head -c 32)
-	read -e -p "|| Enter a password for the Virtualmin admin panel: " -i "${VMIN_PASSWORD}" VMIN_PASSWORD
-fi
-
-# Check we have a password to use for the default domain webmin admin
-if [ -z "$WEBMIN_PASSWORD" ]; then
-	WEBMIN_PASSWORD=$(date +%s|sha256sum|sha256sum|base64|head -c 32)
-	read -e -p "|| Enter a password for the default domain Webmin user: " -i "${WEBMIN_PASSWORD}" WEBMIN_PASSWORD
+if [ -z "$virtualmin_password" ]; then
+	virtualmin_password=$(date +%s|sha256sum|base64|head -c 32)
+	read -e -p "|| Enter a password for the Virtualmin admin panel: " -i "${virtualmin_password}" virtualmin_password
 fi
 
 # Check we have a password to set for the MySQL root user
-if [ -z "$MYSQL_PASSWORD" ]; then
-	MYSQL_PASSWORD=$(date +%s|sha256sum|sha256sum|base64|head -c 32)
-	read -e -p "|| Enter a password for the MySQL root user: " -i "${MYSQL_PASSWORD}" MYSQL_PASSWORD
+if [ -z "$myqsl_root_password" ]; then
+	myqsl_root_password=$(date +%s|sha256sum|sha256sum|base64|head -c 32)
+	read -e -p "|| Enter a password for the MySQL root user: " -i "${myqsl_root_password}" myqsl_root_password
 fi
 
 # AWS Credentials
 # Check for an AWS access key
-if [ -z "$AWS_ACCESS_KEY" ]; then
-	read -e -p "|| Enter an (optional) aws-cli ACCESS KEY: " -i "${AWS_ACCESS_KEY}" AWS_ACCESS_KEY
+if [ -z "$aws_access_key" ]; then
+	read -e -p "|| Enter an (optional) aws-cli ACCESS KEY: " -i "${aws_access_key}" aws_access_key
 fi
 
 # Check for an AWS secret key
-if [ -z "$AWS_SECRET_KEY" ]; then
-	read -e -p "|| Enter an (optional) aws-cli SECRET KEY: " -i "${AWS_SECRET_KEY}" AWS_SECRET_KEY
+if [ -z "$aws_secret_key" ]; then
+	read -e -p "|| Enter an (optional) aws-cli SECRET KEY: " -i "${aws_secret_key}" aws_secret_key
 fi
 
 # Check for a a custom SSH port
-if [ -z "$SSH_PORT" ]; then
-	read -e -p "|| Enter an (optional) custom SSH port: " -i "${SSH_PORT}" SSH_PORT
+if [ -z "$ssh_custom_port" ]; then
+	read -e -p "|| Enter an (optional) custom SSH port: " -i "${ssh_custom_port}" ssh_custom_port
 fi
 
 
@@ -215,26 +192,26 @@ fi
 # Logging
 declare PREFIX="RALVIN | create-sudo-user |"
 
-if [ ! -z "${SUDO_USER}" || ! -z "${SUDO_PASSWORD}"]; then
+if [ ! -z "${sudo_user_name}" || ! -z "${sudo_user_password}"]; then
 
 	# Check if the user account already exists
 	if id "$1" &>/dev/null; then
 		echo "${PREFIX} User already exists" >> ./RALVIN.log
 	else
 		# Add the user account, and set the password
-		useradd ${SUDO_USER}
-		echo "${PREFIX} Created user: ${SUDO_USER}" >> ./RALVIN.log
+		useradd ${sudo_user_name}
+		echo "${PREFIX} Created user: ${sudo_user_name}" >> ./RALVIN.log
 
-		echo "${SUDO_PASSWORD}" | passwd "${SUDO_USER}" --stdin
-		echo "${PREFIX} Updated password for user: ${SUDO_USER}" >> ./RALVIN.log
+		echo "${sudo_user_password}" | passwd "${sudo_user_name}" --stdin
+		echo "${PREFIX} Updated password for user: ${sudo_user_name}" >> ./RALVIN.log
 	fi
 
 	# Add the uset to the wheel group
-	usermod -aG wheel ${SUDO_USER}
-	echo "${PREFIX} Added user ${SUDO_USER} to wheel group" >> ./RALVIN.log
+	usermod -aG wheel ${sudo_user_name}
+	echo "${PREFIX} Added user ${sudo_user_name} to wheel group" >> ./RALVIN.log
 
 	# Optional: disable password entry for sudo use:
-	#echo "${SUDO_USER} ALL=(ALL) NOPASSWD: ALL" | sudo tee --append /etc/sudoers
+	#echo "${sudo_user_name} ALL=(ALL) NOPASSWD: ALL" | sudo tee --append /etc/sudoers
 else
 	echo "${PREFIX} Can't create sudo user, missing username or password" >> ./RALVIN.log
 fi
@@ -251,19 +228,19 @@ fi
 # Logging
 declare PREFIX="RALVIN | add-public-key |"
 
-if [ -z "$PUBKEY" && ! -z "${SUDO_USER}" ]; then
+if [ -z "$sudo_user_pubkey" && ! -z "${sudo_user_name}" ]; then
 	echo "${PREFIX} Skipping pubkey (none provided)" >> ./RALVIN.log
 else
-	$PATH = "/home/${SUDO_USER}/.ssh"
+	$PATH = "/home/${sudo_user_name}/.ssh"
 
 	mkdir ${PATH}
 	chmod 700 ${PATH}
 	touch "${PATH}/authorized_keys"
 	chmod 600 "${PATH}/authorized_keys"
 	echo "${2}" tee --append "${PATH}/authorized_keys"
-	chown -R ${SUDO_USER}:${SUDO_USER} ${PATH}
+	chown -R ${sudo_user_name}:${sudo_user_name} ${PATH}
 
-	echo "${PREFIX}  Added pubkey to ${PATH}/authorized_keys: ${PUBKEY}" >> ./RALVIN.log
+	echo "${PREFIX}  Added pubkey to ${PATH}/authorized_keys: ${sudo_user_pubkey}" >> ./RALVIN.log
 fi
 
 
@@ -280,8 +257,8 @@ declare PREFIX="RALVIN | harden-ssh |"
 
 # Change the port used for SSH
 if [ ! -z "$1" ]; then
-	echo "${PREFIX} SSH port changed to ${SSH_PORT}" >> ./RALVIN.log
-	sed -i 's/#\?\(Port\s*\).*$/\1 ${SSH_PORT}/' /etc/ssh/sshd_config
+	echo "${PREFIX} SSH port changed to ${ssh_custom_port}" >> ./RALVIN.log
+	sed -i 's/#\?\(Port\s*\).*$/\1 ${ssh_custom_port}/' /etc/ssh/sshd_config
 fi
 
 # Disable weak authentication
@@ -312,8 +289,8 @@ echo "${PREFIX} SSH Daemon restarted" >> ./RALVIN.log
 declare PREFIX="RALVIN | hostname-setup |"
 
 # Set correct hostname
-hostnamectl set-hostname --static "${DOMAIN}"
-echo "${PREFIX} hostname set to: ${DOMAIN}" >> ./RALVIN.log
+hostnamectl set-hostname --static "${fqdn_hostname}"
+echo "${PREFIX} hostname set to: ${fqdn_hostname}" >> ./RALVIN.log
 
 # Add self to DNS lookup servers (needed for virtualmin)
 echo "prepend domain-name-servers 127.0.0.1;" | sudo tee -a /etc/dhcp/dhclient.conf
@@ -394,19 +371,19 @@ if [ ! -f /usr/local/bin/aws ]; then
 fi
 
 # add aws-cli credentials if provided
-if [[ ! -z "${AWS_ACCESS_KEY}" && ! -z "${AWS_SECRET_KEY}" ]]; then
+if [[ ! -z "${aws_access_key}" && ! -z "${aws_secret_key}" ]]; then
     declare INSTANCE_REGION
     declare INSTANCE_ID
     declare INSTANCE_NAME
-    declare PROTOCOL
+    declare aws_firewall_port_protocol
 
     #generate credntials file
 	[ ! -d ~/.aws ] && mkdir ~/.aws # make dir if not exist
 	if [ ! -f ~/.aws/credentials ]; then
 		touch ~/.aws/credentials 
 		echo "[default]" >> ~/.aws/credentials
-		echo "aws_access_key_id=${AWS_ACCESS_KEY}" >> ~/.aws/credentials
-		echo "aws_secret_access_key=${AWS_SECRET_KEY}" >> ~/.aws/credentials
+		echo "aws_access_key_id=${aws_access_key}" >> ~/.aws/credentials
+		echo "aws_secret_access_key=${aws_secret_key}" >> ~/.aws/credentials
 	fi
     
     # get info on this instance
@@ -424,30 +401,30 @@ if [[ ! -z "${AWS_ACCESS_KEY}" && ! -z "${AWS_SECRET_KEY}" ]]; then
     fi
 
     # Open Ports
-	# AWS_PORTS are declared at the top of the script
-    echo "${PREFIX} Opening ports ${AWS_PORTS[@]}" >> ./RALVIN.log
-    PROTOCOL="tcp"
+	# aws_firewall_ports are declared at the top of the script
+    echo "${PREFIX} Opening ports ${aws_firewall_ports[@]}" >> ./RALVIN.log
+    aws_firewall_port_protocol="tcp"
 
-    for PORT in ${AWS_PORTS[@]}; do
+    for port in ${aws_firewall_ports[@]}; do
         # using "both" seems to cause a bug that removes all ports. fix this later.
         
-        # if [ "$PORT" -gt "1000" ]; then
-        #     PROTOCOL="tcp"
+        # if [ "$port" -gt "1000" ]; then
+        #     aws_firewall_port_protocol="tcp"
         # else
-        #     PROTOCOL="both"
+        #     aws_firewall_port_protocol="both"
         # fi
 
         /usr/local/bin/aws lightsail open-instance-public-ports --cli-input-json "{
             \"portInfo\": {
-                \"fromPort\": ${PORT},
-                \"toPort\": ${PORT},
-                \"protocol\": \"${PROTOCOL}\"
+                \"fromPort\": ${port},
+                \"toPort\": ${port},
+                \"protocol\": \"${aws_firewall_port_protocol}\"
             },
             \"instanceName\": \"${INSTANCE_NAME}\"
         }" | grep '"status": "Succeeded"' &> /dev/null
 
         if [ $? != 0 ]; then
-            echo "${PREFIX} Failed to open port ${PORT}" >> ./RALVIN.log
+            echo "${PREFIX} Failed to open port ${port}" >> ./RALVIN.log
         fi
     done
 else
@@ -616,15 +593,15 @@ chmod +x ./virtualmin-installer.sh
 echo "${PREFIX} got latest installer" >> ./RALVIN.log
 
 # Run the installer
-echo "${PREFIX} triggering install with hostname ${DOMAIN}" >> ./RALVIN.log
-./virtualmin-installer.sh --hostname "${DOMAIN}" --force
-echo "${PREFIX} finished install with hostname ${DOMAIN}" >> ./RALVIN.log
+echo "${PREFIX} triggering install with hostname ${fqdn_hostname}" >> ./RALVIN.log
+./virtualmin-installer.sh --hostname "${fqdn_hostname}" --force
+echo "${PREFIX} finished install with hostname ${fqdn_hostname}" >> ./RALVIN.log
 
 
 # Update the password
-if [[ ! -z $VMIN_USER && ! -z $VMIN_PASSWORD ]]; then
-	sudo /usr/libexec/webmin/changepass.pl /etc/webmin $VMIN_USER $VMIN_PASSWORD
-	echo "${PREFIX} password updated for Virtualmin user ${VMIN_USER}" >> ./RALVIN.log
+if [[ ! -z $virtualmin_user_name && ! -z $virtualmin_password ]]; then
+	sudo /usr/libexec/webmin/changepass.pl /etc/webmin $virtualmin_user_name $virtualmin_password
+	echo "${PREFIX} password updated for Virtualmin user ${virtualmin_user_name}" >> ./RALVIN.log
 fi
 
 
@@ -662,8 +639,8 @@ sed -i 's/mysql=.*/mysql=1/' $CONFIG
 
 # Update password for MySQL root user
 # This needs to be done BEFORE you upgrade to MariaDB 10.4+ due to the bug described at https://www.virtualmin.com/node/64694
-if [ ! -z "${MYSQL_PASSWORD}" ]; then
-	virtualmin set-mysql-pass --user root --pass "${MYSQL_PASSWORD}"
+if [ ! -z "${myqsl_root_password}" ]; then
+	virtualmin set-mysql-pass --user root --pass "${myqsl_root_password}"
 	echo "${PREFIX} Updated root password for MySQL" >> ./RALVIN.log
 fi
 
@@ -761,10 +738,13 @@ echo "${PREFIX} Virtualmin Post-Install Wizard setup complete" >> ./RALVIN.log
 # Logging
 declare PREFIX="RALVIN | create-default-domain |"
 
-# Create a virtual site for the default domain
-virtualmin create-domain --domain "${DOMAIN}" --pass "${WEBMIN_PASSWORD}" --default-features
+# Generate a random password for the default domain user account
+webmin_password=$(date +%s|sha256sum|sha256sum|base64|head -c 32)
 
-declare HOME_DIR=$(virtualmin list-domains | grep "${DOMAIN}" | awk -F" " '{print $2}')
+# Create a virtual site for the default domain
+virtualmin create-domain --domain "${fqdn_hostname}" --pass "${webmin_password}" --default-features
+
+declare HOME_DIR=$(virtualmin list-domains | grep "${fqdn_hostname}" | awk -F" " '{print $2}')
 
 if [ ! -z "$HOME_DIR" ]; then
 	# Copy default server status page
@@ -772,7 +752,7 @@ if [ ! -z "$HOME_DIR" ]; then
 	echo "${PREFIX} Created /home/${HOME_DIR}/public_html/index.html" >> ./RALVIN.log
 	
 	# Update status page with correct domain
-	sed -i -e "s/example\.com/${DOMAIN}/g" "/home/${HOME_DIR}/public_html/index.html"
+	sed -i -e "s/example\.com/${fqdn_hostname}/g" "/home/${HOME_DIR}/public_html/index.html"
 fi
 
 # Generate and install lets encrypt certificate
@@ -904,13 +884,13 @@ echo "${PREFIX} Postfix hardened and reloaded" >> ./RALVIN.log
 printf "\n"
 printf "|| RALVIN has completed \n"
 printf "|| ========================================================\n"
-printf "|| FQDN:                           ${DOMAIN} \n"
-printf "|| Sudo user:                      ${SUDO_USER} \n"
-printf "|| Sudo password:                  ${SUDO_PASSWORD} \n"
-printf "|| Public key:                     ${PUBKEY} \n"
-printf "|| MySQL root password:            ${MYSQL_PASSWORD} \n"
-printf "|| Webmin default domain password: ${WEBMIN_PASSWORD} \n"
-printf "|| Virtualmin user:                ${VMIN_USER} \n"
-printf "|| Virtualmin password:            ${VMIN_PASSWORD} \n"
-printf "|| Virtualmin panel:               https://${DOMAIN}:10000 \n"
+printf "|| FQDN:                           ${fqdn_hostname} \n"
+printf "|| Sudo user:                      ${sudo_user_name} \n"
+printf "|| Sudo password:                  ${sudo_user_password} \n"
+printf "|| Public key:                     ${sudo_user_pubkey} \n"
+printf "|| MySQL root password:            ${myqsl_root_password} \n"
+printf "|| Webmin default domain password: ${webmin_password} \n"
+printf "|| Virtualmin user:                ${virtualmin_user_name} \n"
+printf "|| Virtualmin password:            ${virtualmin_password} \n"
+printf "|| Virtualmin panel:               https://${fqdn_hostname}:10000 \n"
 

@@ -22,7 +22,7 @@ It will also change various config file settings and add the key provided to the
 
 ## How to use:
 
-### Run directly with parameters (be sure to set your own key and passwords):
+Copy the following, update it with your ownd etails, and paste it over SSH:
 
 ```bash
 
@@ -44,11 +44,13 @@ sudo ./ralvin.sh \
 	
 ```
 
-This script is the same as [launch.sh](launch.sh). You could alternately curl that script and edit it:
+This script is the same as [launch.sh](launch.sh). 
+
+**Alternatively**: You could curl the above script and edit it:
 
 ```bash
 curl https://raw.githubusercontent.com/stom66/ralvin/main/launch.sh && nano launch.sh
-sudo sh launchs.sh
+sudo sh launch.sh
 ```
 
 

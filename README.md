@@ -4,12 +4,14 @@
 
 ## Rocky Amazon Lightsail Virtualmin Installer
 
-This script is designed to be run on a fresh installation of CentOS 7 running on the AWS Lightsail platform. It has been tested on the 512MB and above platforms.
+This script is designed to be run on a fresh installation of Rocky 8. It supports both AWS and non-AWS systems. It has been tested on the 512MB+ Lightsail platforms.
+
+It was developed for personal use, and I take no responsibility for any problems it may cause. It is minimally configurable abnd based on my own use-cases.
 
 It will install all required dependencies for the following: 
 
 * Virtualmin LAMP
-* PHP 7.4 (via Virtualmin) and 8.1 (via Remi)
+* PHP 7.4 (via dnf) and 8.1 (via Remi)
 * NodeJS 18.x
 * MariaDB 10.5
 
@@ -20,33 +22,41 @@ It will also change various config file settings and add the key provided to the
 
 ## How to use:
 
-Create your instance and connect via SSH. Use the bash commands provided in the `bootstrap.sh` file to clone the scripts from Git and trigger the installer.
+###  Edit and use launch.sh:
 
-Below is an example useage of the commands from `bootstrap.js`.
-
-
-#### Launch without parameters:
-
+Example commands to clone the scripts from Git and open launch.sh for editing:
 ```bash
-sudo yum install git -y -q
-git clone https://github.com/stom66/ralvin/ ralvin && cd ralvin && chmod +x launch.sh
+sudo dnf install -y -q git nano
+git clone https://github.com/stom66/ralvin/ ralvin && cd ralvin
+chmod +x launch.sh && chmod +x ralvin.sh
+nano launch.sh
+```
+
+Edit the file, then run:
+```bash
 sudo ./launch.sh
 ```
 
-#### Launch with parameters (be sure to set your own key and passwords):
+### (Or) Run directly with parameters (be sure to set your own key and passwords):
 
 ```bash
-sudo yum install git -y -q
-git clone https://github.com/stom66/ralvin/ ralvin && cd ralvin && chmod +x launch.sh
-sudo ./launch.sh \
---domain "example.domain.com" \
---pubkey "ssh-ed25520 yourkeygoeshere" \
---virtualmin-user root \
---virtualmin-password "yourPassword1" \
---mysql-password "yourPassword3" \
---webmin-password "yourPassword2" \
---aws-access-key "EXAMPLEACCESSKEY" \
---aws-secret-key "EXAMPLESECRETKEY"
+
+sudo dnf install -y -q git
+git clone https://github.com/stom66/ralvin/ ralvin && cd ralvin
+chmod +x ralvin.sh
+sudo ./ralvin.sh \
+	--domain "example.domain.com" \
+	--ssh-port 2022 \
+	--sudo-user-name "rocky" \
+	--sudo-user-password "yourPassword1" \
+	--sudo-user-pubkey "ssh-ed25520 yourkeygoeshere" \
+	--virtualmin-user root \
+	--virtualmin-password "yourPassword1" \
+	--mysql-password "yourPassword3" \
+	--webmin-password "yourPassword2" \
+	--aws-access-key "EXAMPLEACCESSKEY" \
+	--aws-secret-key "EXAMPLESECRETKEY"
+	
 ```
 
 
@@ -70,3 +80,24 @@ Some thing to do after logging in:
   * https://domain.com/cgi-bin/autoconfig.cgi?emailaddress=user@domain.com
 
 	
+
+---
+
+## ToDo
+
+* Enable quotas in grub
+* Configure Postfix [mostly done]
+* Cludge the autodiscover file, or:
+* Find suitable Postfix config to correctly populate mail autoconfig template (and avoid need for hardcoding)
+* Generate a keypair for the centos user and output the public key
+* Option to increase SSH timeout?
+* Enable snapshots via AWS CLI
+
+* ~~Add custom SSH port?~~
+* ~~Open ports via AWS CLI~~
+* ~~Add PHP 7.* ini files to Virtualmin config~~
+* ~~Apply GNU Terry Pratchett~~
+* ~~Configure a default domain~~
+* ~~Import simple status page for default virtual server~~
+* ~~Install and enable 2FA, presenting a QR code if possible~~
+

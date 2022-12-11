@@ -22,22 +22,7 @@ It will also change various config file settings and add the key provided to the
 
 ## How to use:
 
-###  Edit and use launch.sh:
-
-Example commands to clone the scripts from Git and open launch.sh for editing:
-```bash
-sudo dnf install -y -q git nano
-git clone https://github.com/stom66/ralvin/ ralvin && cd ralvin
-chmod +x launch.sh && chmod +x ralvin.sh
-nano launch.sh
-```
-
-Edit the file, then run:
-```bash
-sudo ./launch.sh
-```
-
-### (Or) Run directly with parameters (be sure to set your own key and passwords):
+### Run directly with parameters (be sure to set your own key and passwords):
 
 ```bash
 
@@ -57,6 +42,13 @@ sudo ./ralvin.sh \
 	--aws-access-key "EXAMPLEACCESSKEY" \
 	--aws-secret-key "EXAMPLESECRETKEY"
 	
+```
+
+This script is the same as [launch.sh](launch.sh). You could alternately curl that script and edit it:
+
+```bash
+curl https://raw.githubusercontent.com/stom66/ralvin/main/launch.sh && nano launch.sh
+sudo sh launchs.sh
 ```
 
 

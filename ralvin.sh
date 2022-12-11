@@ -197,7 +197,7 @@ fi
 # Logging
 log_prefix="RALVIN | create-sudo-user |"
 
-if [ ! -z "${sudo_user_name}" || ! -z "${sudo_user_password}"]; then
+if [ ! -z "${sudo_user_name}" ] && [ ! -z "${sudo_user_password}" ]; then
 
 	# Check if the user account already exists
 	if id "${sudo_user_name}" &>/dev/null; then

@@ -38,7 +38,6 @@ sudo ./ralvin.sh \
 	--virtualmin-user root \
 	--virtualmin-password "yourPassword1" \
 	--mysql-password "yourPassword3" \
-	--webmin-password "yourPassword2" \
 	--aws-access-key "EXAMPLEACCESSKEY" \
 	--aws-secret-key "EXAMPLESECRETKEY"
 	

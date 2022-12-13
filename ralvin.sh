@@ -7,6 +7,14 @@ if (( EUID != 0 )); then
     exit 1
 fi
 
+# Logging function
+log_prefix="|| "
+log_file="ralvin.log"
+log() {
+	echo "$log_prefix $1"
+
+	echo "$log_prefix $1" >> $log_file
+}
 
 
 # ███████╗███████╗████████╗██╗   ██╗██████╗     ██╗   ██╗ █████╗ ██████╗ ███████╗
@@ -15,174 +23,233 @@ fi
 # ╚════██║██╔══╝     ██║   ██║   ██║██╔═══╝     ╚██╗ ██╔╝██╔══██║██╔══██╗╚════██║
 # ███████║███████╗   ██║   ╚██████╔╝██║          ╚████╔╝ ██║  ██║██║  ██║███████║
 # ╚══════╝╚══════╝   ╚═╝    ╚═════╝ ╚═╝           ╚═══╝  ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
-#                                                                                
+#
+
 declare -l fqdn_hostname
+declare ssh_custom_port
+
+declare -l sudo_user_name
 declare sudo_user_pubkey
-declare sudo_user_name
 declare sudo_user_password
-declare virtualmin_user_name
+
+declare -l virtualmin_user
 declare virtualmin_password
-declare myqsl_root_password
+declare mysql_root_password
+
 declare aws_access_key
 declare aws_secret_key
-
 declare -a aws_firewall_ports=(22 25 80 443 465 587 993 10000 20000)
 
+read -r -d '' help_info << EOM
+Rocky Amazon LightSail Virtualmin Installer (RALVIN)
+
+More information is available at https://github.com/stom66/ralvin
+
+Options:
+    --help                                show this help info
+
+    --domain [domain.tld]                 specify the FQDN to use as the system hostname
+    --ssh-port [number]                   (optional): a custom port to use for the ssh server
+
+    --sudo-user-name [rocky]              specify a user account to use (or create) as the sudo account
+    --sudo-user-pubkey [valid pubkey]     specify an public key to be added to the authorized_keys file for the sudo user
+    --sudo-user-password [random]         specify a password for the sudo account
+
+    --mysql-root-password [random]        specify a password to use for the MySQL root user
+    --virtualmin-user [root]              specify a user to enable the Vitualmin admin panel password for
+    --virtualmin-password [random]        specify a password to use for the Virtualmin admin panel
+
+    --aws-access-key [key]                (optional): aws access key to use for aws-cli
+    --aws-secret-key [key]                (optional): aws secret key to use for aws-cli
+
+EOM
 
 
-# ██████╗  █████╗ ██████╗ ███████╗███████╗    ██████╗  █████╗ ██████╗  █████╗ ███╗   ███╗███████╗
-# ██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔════╝    ██╔══██╗██╔══██╗██╔══██╗██╔══██╗████╗ ████║██╔════╝
-# ██████╔╝███████║██████╔╝███████╗█████╗      ██████╔╝███████║██████╔╝███████║██╔████╔██║███████╗
-# ██╔═══╝ ██╔══██║██╔══██╗╚════██║██╔══╝      ██╔═══╝ ██╔══██║██╔══██╗██╔══██║██║╚██╔╝██║╚════██║
-# ██║     ██║  ██║██║  ██║███████║███████╗    ██║     ██║  ██║██║  ██║██║  ██║██║ ╚═╝ ██║███████║
-# ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝    ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝
-#                                                                                                
-while [ $# -gt 0 ]; do
-	key="$1"
-	case $key in
-		-h|--help)
-			echo "Rocky Amazon LightSail Virtualmin Installer (RALVIN)"
-			echo " "
-			echo "More information is available at https://github.com/stom66/ralvin"
-			echo " "
-			echo "Options:"
-			echo "  -h, --help                                show brief help"
-			echo "  -d, --domain [domain.tld]                 specify an FQDN to use as the system hostname"
-			echo "  -suk, --sudo-user-pubkey [valid pubkey]     specify an public key to be added to the authorized_keys file for the sudo user"
-			echo "  -suu, --sudo-user-name [root]                   specify a user account to use (or create) as the sudo account"
-			echo "  -sup, --sudo-user-password [mypassword]         specify a password for the sudo account"
-			echo "  -vu, --virtualmin-user [root]             specify a user to enable the Vitualmin admin panel password for"
-			echo "  -vp, --virtualmin-password [mypassword]   specify a password to use for the Virtualmin admin panel"
-			echo "  -mp, --mysql-password [mypassword]        specify a password to use for the MySQL root user"
-			echo "  -a, --aws-access-key [key]                optional: aws access key to use for aws-cli"
-			echo "  -s, --aws-secret-key [key]                optional: aws secret key to use for aws-cli"
-			echo "  -ss, --ssh-port [number]                  optional: a custom port to use for the ssh server"
-			exit 0
-			;;
-		-d|--domain)
-			fqdn_hostname="$2"
-			shift 2
-			;;
-			
-		-suu|--sudo-user-name)
-			sudo_user_name="$2"
-			shift 2
-			;;
-		-suk|--sudo-user-pubkey)
-			sudo_user_pubkey="$2"
-			shift 2
-			;;
-		-sup|--sudo-password)
-			sudo_user_password="$2"
-			shift 2
-			;;
+# ██████╗  █████╗ ██████╗ ███████╗███████╗    ███████╗██╗      █████╗  ██████╗ ███████╗
+# ██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔════╝    ██╔════╝██║     ██╔══██╗██╔════╝ ██╔════╝
+# ██████╔╝███████║██████╔╝███████╗█████╗      █████╗  ██║     ███████║██║  ███╗███████╗
+# ██╔═══╝ ██╔══██║██╔══██╗╚════██║██╔══╝      ██╔══╝  ██║     ██╔══██║██║   ██║╚════██║
+# ██║     ██║  ██║██║  ██║███████║███████╗    ██║     ███████╗██║  ██║╚██████╔╝███████║
+# ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝    ╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝
+#                                                                                      
 
-		-vu|--virtualmin-user-name)
-			virtualmin_user_name="$2"
-			shift 2
-			;;
-		-vp|--virtualmin-password)
-			virtualmin_password="$2"
-			shift 2
-			;;
 
-		-mp|--mysql-password)
-			myqsl_root_password="$2"
-			shift 2
-			;;
+# fqdn_hostname
+# sudo_user_pubkey
+# sudo_user_name
+# sudo_user_password
+# virtualmin_user
+# virtualmin_password
+# mysql_root_password
+# aws_access_key
+# aws_secret_key
+# ssh_custom_port
 
-		-a|--aws-access-key)
-			aws_access_key="$2"
-			shift 2
-			;;
-		-s|--aws-secret-key)
-			aws_secret_key="$2"
-			shift 2
-			;;
-
-		-ss|--ssh-port)
-			ssh_custom_port="$2"
-			shift 2
-			;;
-		*)
-			break
-			;;
-	esac
+# Parse the named flags provided to the script
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --help)
+      printf "$help_info \n"
+	  exit 0
+      ;;
+    --fqdn-hostname)
+      fqdn_hostname=$2
+      shift
+      shift
+      ;;
+    --ssh-custom-port)
+      ssh_custom_port=$2
+      shift
+      shift
+      ;;
+    --sudo-user-pubkey)
+      sudo_user_pubkey=$2
+      shift
+      shift
+      ;;
+    --sudo-user-name)
+      sudo_user_name=$2
+      shift
+      shift
+      ;;
+    --sudo-user-password)
+      sudo_user_password=$2
+      shift
+      shift
+      ;;
+    --virtualmin-user)
+      virtualmin_user=$2
+      shift
+      shift
+      ;;
+    --virtualmin-password)
+      virtualmin_password=$2
+      shift
+      shift
+      ;;
+    --mysql-root-password)
+      mysql_root_password=$2
+      shift
+      shift
+      ;;
+    --aws-access-key)
+      aws_access_key=$2
+      shift
+      shift
+      ;;
+    --aws-secret-key)
+      aws_secret_key=$2
+      shift
+      shift
+      ;;
+    *)
+      shift
+      ;;
+  esac
 done
 
+# ██████╗ ██████╗  ██████╗ ███╗   ███╗██████╗ ████████╗    ███████╗██╗      █████╗  ██████╗ ███████╗
+# ██╔══██╗██╔══██╗██╔═══██╗████╗ ████║██╔══██╗╚══██╔══╝    ██╔════╝██║     ██╔══██╗██╔════╝ ██╔════╝
+# ██████╔╝██████╔╝██║   ██║██╔████╔██║██████╔╝   ██║       █████╗  ██║     ███████║██║  ███╗███████╗
+# ██╔═══╝ ██╔══██╗██║   ██║██║╚██╔╝██║██╔═══╝    ██║       ██╔══╝  ██║     ██╔══██║██║   ██║╚════██║
+# ██║     ██║  ██║╚██████╔╝██║ ╚═╝ ██║██║        ██║       ██║     ███████╗██║  ██║╚██████╔╝███████║
+# ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚═╝        ╚═╝       ╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝
+#                                                                                                   
 
+log "RALVIN: checking options"
+log "========================================================"
 
-#  ██████╗██╗  ██╗███████╗ ██████╗██╗  ██╗    ██████╗  █████╗ ██████╗  █████╗ ███╗   ███╗███████╗
-# ██╔════╝██║  ██║██╔════╝██╔════╝██║ ██╔╝    ██╔══██╗██╔══██╗██╔══██╗██╔══██╗████╗ ████║██╔════╝
-# ██║     ███████║█████╗  ██║     █████╔╝     ██████╔╝███████║██████╔╝███████║██╔████╔██║███████╗
-# ██║     ██╔══██║██╔══╝  ██║     ██╔═██╗     ██╔═══╝ ██╔══██║██╔══██╗██╔══██║██║╚██╔╝██║╚════██║
-# ╚██████╗██║  ██║███████╗╚██████╗██║  ██╗    ██║     ██║  ██║██║  ██║██║  ██║██║ ╚═╝ ██║███████║
-#  ╚═════╝╚═╝  ╚═╝╚══════╝ ╚═════╝╚═╝  ╚═╝    ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝╚══════╝
-#                                                                                                
-printf "\n|| Starting RALVIN. Checking config \n"
-printf "|| ================================ \n"
 
 # Check we have a domain to use for configuration, prompt if not
 if [ -z "$fqdn_hostname" ]; then
 	read -e -p "|| Enter a valid FQDN: " -i "example.com" fqdn_hostname
+else
+	log "Using FQDN: $fqdn_hostname"
 fi
 
 # Quit out if the user failed to provide a FQDN
 if [ -z "$fqdn_hostname" ]; then
-	printf "|| You must specify a FQDN. Script is exiting.\n\n"
+	log "You must specify a FQDN. Script is exiting.\n"
 	exit 0
-fi
-
-# Check if we're using a pubkey, or request one
-if [ -z "$sudo_user_pubkey" ]; then
-	read -e -p "|| Enter an optional public key to install: " -i "${sudo_user_pubkey}" PUBKEY
 fi
 
 # Check we have a sudo user account name to create
 if [ -z "$sudo_user_name" ]; then
 	sudo_user_name="rocky"
 	read -e -p "|| Enter a name for the sudo user account: " -i "${sudo_user_name}" sudo_user_name
+else
+	log "Using sudo_user_name: $sudo_user_name"
 fi
 
-# Check we have a password to use for the Virtualmin admin
-if [ -z "$sudo_user_password" ]; then
-	sudo_user_password=$(date +%s|sha256sum|base64|head -c 32)
-	read -e -p "|| Enter a password for the sudo user account: " -i "${sudo_user_password}" sudo_user_password
+# Check if the user account already exists. If it does not, prompt the user to specify a password for it:
+if id -u "$sudo_user_name"  > /dev/null 2>&1; then
+	log "The user account exists: ${sudo_user_name}, skipping password"
+else
+	# Check we have a password to use for the Virtualmin admin
+	if [ -z "$sudo_user_password" ]; then
+		sudo_user_password=$(date +%s|sha256sum|base64|head -c 32)
+		read -e -p "|| Enter a password for the sudo user account: " -i "${sudo_user_password}" sudo_user_password
+	else
+		log "Using sudo_user_password: $sudo_user_password"
+	fi
+fi
+
+# Check if we're using a pubkey, or request one
+if [ -z "$sudo_user_pubkey" ]; then
+	read -e -p "|| Enter an optional public key for ${sudo_user_name}: " -i "${sudo_user_pubkey}" sudo_user_pubkey
+else
+	log "Adding pubkey for ${sudo_user_name}: $sudo_user_pubkey"
 fi
 
 # Check we have a user to set the password for
-if [ -z "$virtualmin_user_name" ]; then
-	read -e -p "|| Enter a valid user to grant access to the Virtualmin admin panel: " -i "root" virtualmin_user_name
+if [ -z "$virtualmin_user" ]; then
+	read -e -p "|| Enter a valid user to grant access to the Virtualmin admin panel: " -i "root" virtualmin_user
+else
+	log "Using virtualmin_user: $virtualmin_user"
 fi
 
 # Check we have a password to use for the Virtualmin admin
 if [ -z "$virtualmin_password" ]; then
 	virtualmin_password=$(date +%s|sha256sum|base64|head -c 32)
 	read -e -p "|| Enter a password for the Virtualmin admin panel: " -i "${virtualmin_password}" virtualmin_password
+else
+	log "Using virtualmin_password: $virtualmin_password"
 fi
 
 # Check we have a password to set for the MySQL root user
-if [ -z "$myqsl_root_password" ]; then
-	myqsl_root_password=$(date +%s|sha256sum|sha256sum|base64|head -c 32)
-	read -e -p "|| Enter a password for the MySQL root user: " -i "${myqsl_root_password}" myqsl_root_password
+if [ -z "$mysql_root_password" ]; then
+	mysql_root_password=$(date +%s|sha256sum|sha256sum|base64|head -c 32)
+	read -e -p "|| Enter a password for the MySQL root user: " -i "${mysql_root_password}" mysql_root_password
+else
+	log "Using mysql_root_password: $mysql_root_password"
 fi
 
 # AWS Credentials
 # Check for an AWS access key
 if [ -z "$aws_access_key" ]; then
 	read -e -p "|| Enter an (optional) aws-cli ACCESS KEY: " -i "${aws_access_key}" aws_access_key
+else
+	log "Using aws_access_key: $aws_access_key"
 fi
 
 # Check for an AWS secret key
 if [ -z "$aws_secret_key" ]; then
 	read -e -p "|| Enter an (optional) aws-cli SECRET KEY: " -i "${aws_secret_key}" aws_secret_key
+else
+	log "Using aws_secret_key: $aws_secret_key"
 fi
 
 # Check for a a custom SSH port
 if [ -z "$ssh_custom_port" ]; then
+	ssh_custom_port=22
 	read -e -p "|| Enter an (optional) custom SSH port: " -i "${ssh_custom_port}" ssh_custom_port
+else
+	log "Using ssh_custom_port: $ssh_custom_port"
 fi
 
+
+log "========================================================"
+log ""
 
 # ----------------------------------------------------------------
 
@@ -195,30 +262,30 @@ fi
 # ╚═╝  ╚═╝╚═════╝ ╚═════╝     ╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝      ╚═════╝ ╚══════╝╚══════╝╚═╝  ╚═╝
 #
 # Logging
-log_prefix="RALVIN | create-sudo-user |"
+log_prefix="|| create-sudo-user |"
 
-if [ ! -z "${sudo_user_name}" ] && [ ! -z "${sudo_user_password}" ]; then
+if [ -n "${sudo_user_name}" ] && [ -n "${sudo_user_password}" ]; then
 
 	# Check if the user account already exists
-	if id "${sudo_user_name}" &>/dev/null; then
-		echo "${log_prefix} User already exists" >> ./RALVIN.log
+	if id "${sudo_user_name}" & > /dev/null; then
+		log "User already exists"
 	else
 		# Add the user account, and set the password
-		useradd ${sudo_user_name}
-		echo "${log_prefix} Created user: ${sudo_user_name}" >> ./RALVIN.log
+		useradd "$sudo_user_name"
+		log "Created user: ${sudo_user_name}"
 
 		echo "${sudo_user_password}" | passwd "${sudo_user_name}" --stdin
-		echo "${log_prefix} Updated password for user: ${sudo_user_name}" >> ./RALVIN.log
+		log "Updated password for user: ${sudo_user_name}"
 	fi
 
 	# Add the uset to the wheel group
-	usermod -aG wheel ${sudo_user_name}
-	echo "${log_prefix} Added user ${sudo_user_name} to wheel group" >> ./RALVIN.log
+	usermod -aG wheel "${sudo_user_name}"
+	log "Added user ${sudo_user_name} to wheel group"
 
 	# Optional: disable password entry for sudo use:
-	#echo "${sudo_user_name} ALL=(ALL) NOPASSWD: ALL" | sudo tee --append /etc/sudoers
+	#echo "${sudo_user_name} ALL=(ALL) NOPASSWD: ALL" | sudo tee --append /etc/sudoers > /dev/null
 else
-	echo "${log_prefix} Can't create sudo user, missing username or password" >> ./RALVIN.log
+	log "Can't create sudo user, missing username or password"
 fi
 
 
@@ -231,21 +298,29 @@ fi
 # ╚═╝  ╚═╝╚═════╝ ╚═════╝     ╚═╝      ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝   ╚═╝   
 #
 # Logging
-log_prefix="RALVIN | add-public-key |"
+log_prefix="|| add-public-key |"
 
-if [ -z "${sudo_user_pubkey}" || -z "${sudo_user_name}" ]; then
-	echo "${log_prefix} Skipping pubkey (none provided)" >> ./RALVIN.log
+if [ -z "${sudo_user_pubkey}" ] || [ -z "${sudo_user_name}" ]; then
+	log "Skipping pubkey (none provided)"
 else
-	file_path= "/home/${sudo_user_name}/.ssh"
+	file_path="/home/${sudo_user_name}/.ssh"
 
-	mkdir "${file_path}"
+	# Make the dir if it doesn't exist
+	[ ! -d "$file_path" ] && mkdir "$file_path"
+
+	# Make the auth file if it doesn't exist:
+	[ ! -f "$file_path/authorized_keys" ] && touch "$file_path/authorized_keys"
+
+	# Ensure correct perms
+	chown -R "${sudo_user_name}":"${sudo_user_name}" "${file_path}"
 	chmod 700 "${file_path}"
-	touch "${file_path}/authorized_keys"
 	chmod 600 "${file_path}/authorized_keys"
-	echo "${sudo_user_pubkey}" | tee --append "${file_path}/authorized_keys"
-	chown -R ${sudo_user_name}:${sudo_user_name} "${file_path}"
 
-	echo "${log_prefix}  Added pubkey to ${file_path}/authorized_keys: ${sudo_user_pubkey}" >> ./RALVIN.log
+	# Add the key to the authorized_keys
+	echo "${sudo_user_pubkey}" | tee --append "${file_path}/authorized_keys" > /dev/null
+
+	# Logging
+	log " Added pubkey to ${file_path}/authorized_keys: ${sudo_user_pubkey}"
 fi
 
 
@@ -258,28 +333,28 @@ fi
 # ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═══╝    ╚══════╝╚══════╝╚═╝  ╚═╝
 #
 # Logging
-log_prefix="RALVIN | harden-ssh |"
+log_prefix="|| harden-ssh |"
 
 # Change the port used for SSH
-if [ ! -z "$ssh_custom_port" ]; then
-	echo "${log_prefix} SSH port changed to ${ssh_custom_port}" >> ./RALVIN.log
-	sed -i 's/#\?\(Port\s*\).*$/\1 ${ssh_custom_port}/' /etc/ssh/sshd_config
+if [ -n "$ssh_custom_port" ]; then
+	log "SSH port changed to ${ssh_custom_port}"
+	sed -i "s/#\?\(Port\s*\).*$/\1$ssh_custom_port/" /etc/ssh/sshd_config
 fi
 
 # Disable weak authentication
-sed -i 's/#\?\(ChallengeResponseAuthentication\s*\).*$/\1 no/' /etc/ssh/sshd_config
-sed -i 's/#\?\(PasswordAuthentication\s*\).*$/\1 no/' /etc/ssh/sshd_config
+sed -i 's/#\?\(ChallengeResponseAuthentication\s*\).*$/\1no/' /etc/ssh/sshd_config
+sed -i 's/#\?\(PasswordAuthentication\s*\).*$/\1no/' /etc/ssh/sshd_config
 
 # Disable root logins
-sed -i 's/#\?\(PermitRootLogin\s*\).*$/\1 no/' /etc/ssh/sshd_config
+sed -i 's/#\?\(PermitRootLogin\s*\).*$/\1no/' /etc/ssh/sshd_config
 
 # Enable PAM
-sed -i 's/#\?\(UsePAM\s*\).*$/\1 yes/' /etc/ssh/sshd_config
+sed -i 's/#\?\(UsePAM\s*\).*$/\1yes/' /etc/ssh/sshd_config
 
 # Restart SSH Daemon
 systemctl reload sshd
 
-echo "${log_prefix} SSH Daemon restarted" >> ./RALVIN.log
+log "SSH Daemon restarted"
 
 
 
@@ -291,24 +366,27 @@ echo "${log_prefix} SSH Daemon restarted" >> ./RALVIN.log
 #  ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝     ╚═╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚══════╝    ╚═╝  ╚═══╝╚══════╝   ╚═╝    ╚══╝╚══╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
 #
 # Logging   
-log_prefix="RALVIN | hostname-setup |"
+log_prefix="|| hostname-setup |"
 
 # Set correct hostname
 hostnamectl set-hostname --static "${fqdn_hostname}"
-echo "${log_prefix} hostname set to: ${fqdn_hostname}" >> ./RALVIN.log
+log "hostname set to: ${fqdn_hostname}"
 
 # Add self to DNS lookup servers (needed for virtualmin)
-echo "prepend domain-name-servers 127.0.0.1;" | sudo tee -a /etc/dhcp/dhclient.conf
+echo "prepend domain-name-servers 127.0.0.1;" | sudo tee -a /etc/dhcp/dhclient.conf > /dev/null
+log "prepended self to dns in dhclient"
 
 # Check for AWS cloud config file
 CLOUD_CFG_FILE="/etc/cloud/cloud.cfg"
 if test -f "$CLOUD_CFG_FILE"; then
-	echo "preserve_hostname: true" | sudo tee -a "$CLOUD_CFG_FILE"
-	echo "${log_prefix} AWS preserve_hostname set" >> ./RALVIN.log
+	echo "preserve_hostname: true" | sudo tee -a "$CLOUD_CFG_FILE" > /dev/null
+	log "AWS preserve_hostname set"
 fi
 
 # Retart the network
 systemctl restart NetworkManager
+log "NetworkManager service restarted"
+
 
 
 
@@ -320,11 +398,12 @@ systemctl restart NetworkManager
 # ╚═════╝ ╚═╝  ╚═══╝╚═╝          ╚═════╝ ╚═╝     ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝
 #
 # Logging
-log_prefix="RALVIN | dnf-update |"
+log_prefix="|| dnf-update |"
 
 # dnf update
-dnf update -y
-echo "${log_prefix} Updated existing packages" >> ./RALVIN.log
+log "Updating existing packages..."
+dnf update -y -q
+log "Finsihed updating"
 
 
 
@@ -336,39 +415,40 @@ echo "${log_prefix} Updated existing packages" >> ./RALVIN.log
 # ╚═════╝ ╚═╝  ╚═══╝╚═╝         ╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝
 #                
 # Logging
-log_prefix="RALVIN | dnf-install |"                                                           
+log_prefix="|| dnf-install |"                                                           
 
 # Add epel-release
-dnf install -y epel-release
-echo "${log_prefix} Installed package: epel-release" >> ./RALVIN.log
+log "Installing package: epel-release"
+dnf install -y -q epel-release
+log "Finished installing"
 
 # Add other dependencies
 PACKAGES=(
-  tmux
-  wget
-  nano
-  gcc
-  gcc-c++
-  gem
-  git
-  htop
-  lm_sensors
-  make
-  ncdu
-  perl
-  perl-Authen-PAM
-  perl-CPAN
-  ruby-devel
-  rubygems
-  scl-utils
-  util-linux
-  zip
-  unzip
+	tmux
+	wget
+	nano
+	gcc
+	gcc-c++
+	gem
+	git
+	htop
+	lm_sensors
+	make
+	ncdu
+	perl
+	perl-Authen-PAM
+	perl-CPAN
+	ruby-devel
+	rubygems
+	scl-utils
+	util-linux
+	zip
+	unzip
 )
 
-dnf install -y "${PACKAGES[@]}" &&
-echo "${log_prefix} Installed packages:" >> ./RALVIN.log
-echo "${log_prefix} ${PACKAGES[@]}" >> ./RALVIN.log
+log "Installing packages: ${PACKAGES[*]}"
+dnf install -y -q "${PACKAGES[@]}"
+log "Finished installing"
 
 
 
@@ -380,7 +460,7 @@ echo "${log_prefix} ${PACKAGES[@]}" >> ./RALVIN.log
 # ╚═╝  ╚═╝╚═════╝ ╚═════╝     ╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝       ╚═════╝╚══════╝╚═╝
 #                                                                                
 # Logging
-log_prefix="RALVIN | aws-cli |"
+log_prefix="|| aws-cli |"
 
 # Fetch and install AWS CLI v2
 if [ ! -f /usr/local/bin/aws ]; then
@@ -389,11 +469,13 @@ if [ ! -f /usr/local/bin/aws ]; then
     rm awscliv2.zip
     sudo ./aws/install
     rm -rf ./aws
-    echo "${log_prefix} Installed aws-cli $(/usr/local/bin/aws --version)" >> ./RALVIN.log
+    log "Installed aws-cli $(/usr/local/bin/aws --version)"
+else
+	log "aws-cli is already installed"
 fi
 
 # add aws-cli credentials if provided
-if [[ ! -z "${aws_access_key}" && ! -z "${aws_secret_key}" ]]; then
+if [[ -n "${aws_access_key}" && -n "${aws_secret_key}" ]]; then
     declare INSTANCE_REGION
     declare INSTANCE_ID
     declare INSTANCE_NAME
@@ -412,7 +494,7 @@ if [[ ! -z "${aws_access_key}" && ! -z "${aws_secret_key}" ]]; then
     INSTANCE_REGION=$(/usr/local/bin/aws configure list | grep region | awk '{print $2}')
     INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
     INSTANCE_NAME=$(/usr/local/bin/aws lightsail get-instances --query "instances[?contains(supportCode,'`curl -s http://169.254.169.254/latest/meta-data/instance-id`')].name" --output text)
-    echo "${log_prefix} Configured to control instance ${INSTANCE_NAME} ${INSTANCE_ID} running on ${INSTANCE_REGION}" >> ./RALVIN.log
+    log "Configured to control instance ${INSTANCE_NAME} ${INSTANCE_ID} running on ${INSTANCE_REGION}"
 
     # generate config file
 	if [ ! -f ~/.aws/config ]; then
@@ -424,7 +506,7 @@ if [[ ! -z "${aws_access_key}" && ! -z "${aws_secret_key}" ]]; then
 
     # Open Ports
 	# aws_firewall_ports are declared at the top of the script
-    echo "${log_prefix} Opening ports ${aws_firewall_ports[@]}" >> ./RALVIN.log
+    log "Opening ports ${aws_firewall_ports[@]}"
     aws_firewall_port_protocol="tcp"
 
     for port in ${aws_firewall_ports[@]}; do
@@ -446,11 +528,11 @@ if [[ ! -z "${aws_access_key}" && ! -z "${aws_secret_key}" ]]; then
         }" | grep '"status": "Succeeded"' &> /dev/null
 
         if [ $? != 0 ]; then
-            echo "${log_prefix} Failed to open port ${port}" >> ./RALVIN.log
+            log "Failed to open port ${port}"
         fi
     done
 else
-    echo "${log_prefix} No AWS CLI credentials provided. Unable to configure ports" >> ./RALVIN.log
+    log "No AWS CLI credentials provided. Unable to configure ports"
 fi
 
 
@@ -463,16 +545,16 @@ fi
 # ╚═╝  ╚═╝╚═════╝ ╚═════╝     ╚══════╝   ╚═╝   ╚══════╝╚═╝╚═╝  ╚═══╝╚═╝      ╚═════╝     ╚═╝     ╚═╝ ╚═════╝    ╚═╝   ╚═════╝ 
 #   
 # Logging                           
-log_prefix="RALVIN | add-motd |"
+log_prefix="|| add-motd |"
 
-sed -i 's/#\?\(PrintMotd\s*\).*$/\1 no/' /etc/ssh/sshd_config
-echo "${log_prefix} Updated sshd_config" >> ./RALVIN.log
+sed -i 's/#\?\(PrintMotd\s*\).*$/\1no/' /etc/ssh/sshd_config
+log "Updated sshd_config"
 
 cp ./resources/motd.ls.sh /etc/profile.d/sysinfo.motd.sh
-echo "${log_prefix} Installed and enabled SysInfo MotD" >> ./RALVIN.log
+log "Installed and enabled SysInfo MotD"
 
 chmod +x /etc/profile.d/sysinfo.motd.sh
-echo "${log_prefix} SSH Daemon restarted" >> ./RALVIN.log
+log "SSH Daemon restarted"
 
 systemctl restart sshd
 
@@ -487,25 +569,48 @@ systemctl restart sshd
 # ╚═╝     ╚═╝  ╚═╝╚═╝            ╚═╝╚═╝    ╚═╝
 #
 # Logging
-log_prefix="RALVIN | php-7.4 |"
+log_prefix="|| php-7.4 |"
 
-dnf module enable php:7.4 -y
-echo "${log_prefix} Enabled PHP7.4 Repo" >> ./RALVIN.log
+dnf module enable php:7.4 -y -q
+log "Enabled PHP7.4 Repo"
 
-PACKAGES=""
-PACKAGES="${PACKAGES} php php-fpm php-bcmath php-cli php-common php-curl php-devel"
-PACKAGES="${PACKAGES} php-fpm php-gd php-gmp php-intl php-json php-mbstring php-mysqlnd"
-PACKAGES="${PACKAGES} php-opcache php-pdo php-pear php-pecl-apcu php-pecl-zip php-process"
-PACKAGES="${PACKAGES} php-simplexml php-soap php-xml php-xmlrpc"
+# Add other dependencies
+PACKAGES=(
+	php
+	php-fpm
+	php-bcmath
+	php-cli
+	php-common
+	php-curl
+	php-devel
+	php-fpm
+	php-gd
+	php-gmp
+	php-intl
+	php-json
+	php-mbstring
+	php-mysqlnd
+	php-opcache
+	php-pdo
+	php-pear
+	php-pecl-apcu
+	php-pecl-zip
+	php-process
+	php-simplexml
+	php-soap
+	php-xml
+	php-xmlrpc
+)
 
-dnf install -y $PACKAGES
+log "Installing packages: ${PACKAGES[*]}"
+dnf install -y -q "${PACKAGES[@]}"
 
-echo "${log_prefix} Installed PHP 7.4: $( /usr/bin/php -v | head -n 1)" >> ./RALVIN.log
-echo "${log_prefix} Installed packages: ${PACKAGES}" >> ./RALVIN.log
+log "Finished installing"
+log "Output from php -v: $( /usr/bin/php -v | head -n 1)"
 
 # (Optional) Make this the default CLI version
 #ln -s /usr/bin/php74 /usr/bin/php
-#echo "${log_prefix} Created link in /usr/bin/php" >> ./RALVIN.log
+#log "Created link in /usr/bin/php"
 
 
 
@@ -517,31 +622,60 @@ echo "${log_prefix} Installed packages: ${PACKAGES}" >> ./RALVIN.log
 # ╚═╝     ╚═╝  ╚═╝╚═╝          ╚════╝ ╚═╝╚═╝
 #                                           
 # Logging
-log_prefix="RALVIN | php-8.1 |"
+log_prefix="|| php-8.1 |"
 
 # Setup Remi repo
 dnf config-manager --set-enabled powertools
-dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
-dnf install -y https://rpms.remirepo.net/enterprise/remi-release-8.rpm
-echo "${log_prefix} Enabled PHP Remi 8.1 Repo" >> ./RALVIN.log
+dnf install -y -q https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm
+dnf install -y -q https://rpms.remirepo.net/enterprise/remi-release-8.rpm
+log "Enabled PHP Remi 8.1 Repo"
 
 # Configure packages to install
-PACKAGES=""
-PACKAGES="${PACKAGES} php81 php81-php php81-php-fpm php81-php-bcmath php81-php-cli php81-php-common"
-PACKAGES="${PACKAGES} php81-php-curl php81-php-devel php81-php-fpm php81-php-gd php81-php-gmp php81-php-intl php81-php-json"
-PACKAGES="${PACKAGES} php81-php-mbstring php81-php-mcrypt php81-php-mysqlnd php81-php-opcache php81-php-pdo php81-php-pear"
-PACKAGES="${PACKAGES} php81-php-pecl-apcu php81-php-pecl-geoip php81-php-pecl-imagick php81-php-pecl-json-post"
-PACKAGES="${PACKAGES} php81-php-pecl-memcache php81-php-pecl-xmldiff php81-php-pecl-zip php81-php-process php81-php-pspell"
-PACKAGES="${PACKAGES} php81-php-simplexml php81-php-soap php81-php-tidy php81-php-xml php81-php-xmlrpc"
+PACKAGES=(
+	php81
+	php81-php
+	php81-php-fpm
+	php81-php-bcmath
+	php81-php-cli
+	php81-php-common
+	php81-php-curl
+	php81-php-devel
+	php81-php-fpm
+	php81-php-gd
+	php81-php-gmp
+	php81-php-intl
+	php81-php-json
+	php81-php-mbstring
+	php81-php-mcrypt
+	php81-php-mysqlnd
+	php81-php-opcache
+	php81-php-pdo
+	php81-php-pear
+	php81-php-pecl-apcu
+	php81-php-pecl-geoip
+	php81-php-pecl-imagick
+	php81-php-pecl-json-post
+	php81-php-pecl-memcache
+	php81-php-pecl-xmldiff
+	php81-php-pecl-zip
+	php81-php-process
+	php81-php-pspell
+	php81-php-simplexml
+	php81-php-soap
+	php81-php-tidy
+	php81-php-xml
+	php81-php-xmlrpc
+)
 
-dnf install -y $PACKAGES
+log "Installing packages: ${PACKAGES[*]}"
+dnf install -y -q "${PACKAGES[@]}"
 
-echo "${log_prefix} Installed Remi PHP 8.1: $( /usr/bin/php81 -v | head -n 1)" >> ./RALVIN.log
-echo "${log_prefix} Installed packages: ${PACKAGES}" >> ./RALVIN.log
+log "Finished installing"
+log "Output from php81 -v: $( /usr/bin/php81 -v | head -n 1)"
 
 # (Optional) Make this the default CLI php version
 #ln -s /usr/bin/php74 /usr/bin/php
-#echo "${log_prefix} Created link in /usr/bin/php" >> ./RALVIN.log
+#log "Created link in /usr/bin/php"
 
 
 
@@ -553,14 +687,14 @@ echo "${log_prefix} Installed packages: ${PACKAGES}" >> ./RALVIN.log
 # ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚═════╝ ╚═════╝      ╚═╝ ╚═════╝ ╚═╝╚══════╝
 #             
 # Logging
-log_prefix="RALVIN | mariadb-10.5 |"                                                                      
+log_prefix="|| mariadb-10.5 |"                                                                      
 
 # Install MariaDB 10.5
-dnf module enable -y mariadb:10.5
-dnf install -y mariadb
+dnf module enable -y -q mariadb:10.5
+dnf install -y -q mariadb
 
-echo "${log_prefix} Upgraded MariaDB to $(mariadb -V)" >> ./RALVIN.log
-echo "${log_prefix} MariaDB service restarted " >> ./RALVIN.log
+log "Upgraded MariaDB to $(mariadb -V)"
+log "MariaDB service restarted "
 
 
 
@@ -571,18 +705,20 @@ echo "${log_prefix} MariaDB service restarted " >> ./RALVIN.log
 # ██║  ██║██████╔╝██████╔╝    ██║ ╚████║╚██████╔╝██████╔╝███████╗     ██║╚█████╔╝██╗██╔╝ ██╗
 # ╚═╝  ╚═╝╚═════╝ ╚═════╝     ╚═╝  ╚═══╝ ╚═════╝ ╚═════╝ ╚══════╝     ╚═╝ ╚════╝ ╚═╝╚═╝  ╚═╝
 #
+# Logging
+log_prefix="|| node-js |"
 
 # Install NodeJS v18.x
-dnf module enable -y nodejs:18
-dnf install -y nodejs
+dnf module enable -y -q nodejs:18
+log "Enabled NodeJS v18.x, installing"
+
+dnf install -y -q nodejs
+log "Installed NodeJS $(node -v)"
 
 # Update npm via self
-npm install -g npm@latest
-
-# Logging
-log_prefix="RALVIN | node-js |"
-echo "${log_prefix} Installed NodeJS $(node -v)" >> ./RALVIN.log
-echo "${log_prefix} Installed NPM $(npm -v)" >> ./RALVIN.log
+log "Updating NPM via self"
+npm install -g --quiet npm@latest
+log "Installed NPM $(npm -v)"
 
 
 
@@ -593,13 +729,15 @@ echo "${log_prefix} Installed NPM $(npm -v)" >> ./RALVIN.log
 # ██║  ██║██████╔╝██████╔╝    ██║ ╚████║██║     ██║ ╚═╝ ██║    ██║     ██║  ██║╚██████╗██║  ██╗██║  ██║╚██████╔╝███████╗███████║
 # ╚═╝  ╚═╝╚═════╝ ╚═════╝     ╚═╝  ╚═══╝╚═╝     ╚═╝     ╚═╝    ╚═╝     ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚══════╝
 #                                                                                                                               
+# Logging
+log_prefix="|| npm-install |"
 
 # Install LESS and SASS preprocessors
-npm install -g less sass
+log "Installing LESS and SASS"
+npm install -g --quiet less sass
 
-# Logging
-log_prefix="RALVIN | npm-install |"
-echo "${log_prefix} LESS and SASS installed via NPM" >> ./RALVIN.log
+log "Installed less $(/usr/local/bin/lessc --version)"
+log "Installed sass $(/usr/local/bin/sass --version)"
 
 
 
@@ -610,23 +748,23 @@ echo "${log_prefix} LESS and SASS installed via NPM" >> ./RALVIN.log
 #  ╚████╔╝ ██║██║  ██║   ██║   ╚██████╔╝██║  ██║███████╗██║ ╚═╝ ██║██║██║ ╚████║    ██║██║ ╚████║███████║   ██║   ██║  ██║███████╗███████╗
 #   ╚═══╝  ╚═╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝    ╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝
 ## Logging
-log_prefix="RALVIN | virtualmin-installer |"
+log_prefix="|| virtualmin-installer |"
 
 # Get the installer
 curl -o ./virtualmin-installer.sh http://software.virtualmin.com/gpl/scripts/install.sh
 chmod +x ./virtualmin-installer.sh
-echo "${log_prefix} got latest installer" >> ./RALVIN.log
+log "got latest installer"
 
 # Run the installer
-echo "${log_prefix} triggering install with hostname ${fqdn_hostname}" >> ./RALVIN.log
+log "triggering install with hostname ${fqdn_hostname}"
 ./virtualmin-installer.sh --hostname "${fqdn_hostname}" --force
-echo "${log_prefix} finished install with hostname ${fqdn_hostname}" >> ./RALVIN.log
+log "finished install with hostname ${fqdn_hostname}"
 
 
 # Update the password
-if [[ ! -z $virtualmin_user_name && ! -z $virtualmin_password ]]; then
-	sudo /usr/libexec/webmin/changepass.pl /etc/webmin $virtualmin_user_name $virtualmin_password
-	echo "${log_prefix} password updated for Virtualmin user ${virtualmin_user_name}" >> ./RALVIN.log
+if [[ -n $virtualmin_user && -n $virtualmin_password ]]; then
+	sudo /usr/libexec/webmin/changepass.pl /etc/webmin $virtualmin_user $virtualmin_password
+	log "password updated for Virtualmin user ${virtualmin_user}"
 fi
 
 
@@ -639,7 +777,7 @@ fi
 #   ╚═══╝  ╚═╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝    ╚═╝      ╚═════╝ ╚══════╝   ╚═╝       ╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝
 #
 # Logging
-log_prefix="RALVIN | virtualmin-post-install |"
+log_prefix="|| virtualmin-post-install |"
 
 declare CONFIG="/etc/webmin/virtual-server/config"
 
@@ -664,28 +802,28 @@ sed -i 's/mysql=.*/mysql=1/' $CONFIG
 
 # Update password for MySQL root user
 # This needs to be done BEFORE you upgrade to MariaDB 10.4+ due to the bug described at https://www.virtualmin.com/node/64694
-if [ ! -z "${myqsl_root_password}" ]; then
-	virtualmin set-mysql-pass --user root --pass "${myqsl_root_password}"
-	echo "${log_prefix} Updated root password for MySQL" >> ./RALVIN.log
+if [ -n "${mysql_root_password}" ]; then
+	virtualmin set-mysql-pass --user root --pass "${mysql_root_password}"
+	log "Updated root password for MySQL"
 fi
 
 # Set MySQL server memory size
 sed_param=s/mysql_size=.*/mysql_size=${MYSQL_MEMORY}/  
 sed -i "$sed_param" $CONFIG
-echo "${log_prefix} MySQL memory setting is ${MYSQL_MEMORY}" >> ./RALVIN.log
+log "MySQL memory setting is ${MYSQL_MEMORY}"
 
 
 # Enable preloading of virtualmin libraries
 sed -i 's/preload_mode=.*/preload_mode=1/' $CONFIG
-echo "${log_prefix} Enabled Virtualmin library preloading" >> ./RALVIN.log
+log "Enabled Virtualmin library preloading"
 
 # Enable ClamAV server
 sed -i 's/virus=.*/virus=1/' $CONFIG
-echo "${log_prefix} Enabled ClamAV server" >> ./RALVIN.log
+log "Enabled ClamAV server"
 
 # Enable SpamAssassin server
 sed -i 's/spam=.*/spam=1/' $CONFIG
-echo "${log_prefix} Enabled SpamAssassin server" >> ./RALVIN.log
+log "Enabled SpamAssassin server"
 
 # Enable quotas
 
@@ -705,51 +843,54 @@ echo "${log_prefix} Enabled SpamAssassin server" >> ./RALVIN.log
 #		$v =~ s/rootflags=(\S+)/rootflags=$1,uquota,gquota/;
 #		}
 #	else {
-#		$v .= " rootflags=uquota,gquota";
+#		$v .=" rootflags=uquota,gquota";
 #		}
 #
 
 # Update the config file to let it know quotas are enabled
 #sed -i 's/quotas=.*/quotas=1/' $CONFIG
 
-#echo "${log_prefix} Enabled quotas" >> ./RALVIN.log 
+log "Enabled quotas" 
 
 # Enable hashed passwords
 sed -i 's/hashpass=.*/hashpass=1/' $CONFIG
-echo "${log_prefix} Enabled hashed passwords" >> ./RALVIN.log
+log "Enabled hashed passwords"
 
 # Enable wizard_run flag
 echo "wizard_run=1" >> $CONFIG
 sed -i 's/wizard_run=.*/wizard_run=1/' $CONFIG
-echo "${log_prefix} Manually added wizard_run flag" >> ./RALVIN.log
+log "Manually added wizard_run flag"
 
 # Redirect non-SSL calls to the admin panel to SSL
 sed -i 's/ssl_redirect=.*/ssl_redirect=1/' /etc/webmin/miniserv.conf
-echo "${log_prefix} Enabled non-SSL to SSL redirect for Webmin panel" >> ./RALVIN.log
+log "Enabled non-SSL to SSL redirect for Webmin panel"
 
 # Enable SSL by default
-virtualmin set-global-feature --default-on ssl
-echo "${log_prefix} SSL enabled" >> ./RALVIN.log
+output=$(virtualmin set-global-feature --default-on ssl)
+log "SSL enabled: $output"
 
 # Disable AWstats by default
-virtualmin set-global-feature --default-off virtualmin-awstats 
-echo "${log_prefix} AWStats disabled" >> ./RALVIN.log
+output=$(virtualmin set-global-feature --default-off virtualmin-awstats )
+log "Virtualmin AWStats disabled: $output"
 
 # Disable DAV by default
-virtualmin set-global-feature --default-off virtualmin-dav 
-echo "${log_prefix} DAV disabled" >> ./RALVIN.log
+output=$(virtualmin set-global-feature --default-off virtualmin-dav )
+log "Virtualmin DAV disabled: $output"
 
 # Change autoconfig script to have hard-coded STARTTLS
-virtualmin modify-mail --all-domains --autoconfig
-sudo virtualmin modify-template --id 0 --setting autoconfig --value "$(cat ./resources/autoconfig.xml | tr '\n' ' ')"
-sudo virtualmin modify-template --id 0 --setting autodiscover --value "$(cat ./resources/autodiscover.xml | tr '\n' ' ')"
-echo "${log_prefix} autoconfig enabled and STARTTLS hard-coded" >> ./RALVIN.log
+output=$(virtualmin modify-mail --all-domains --autoconfig)
+log "Virtualmin Enable auto-config: $output"
 
+output=$(virtualmin modify-template --id 0 --setting autoconfig --value "$(cat ./resources/autoconfig.xml | tr '\n' ' ')")
+log "Virtualmin Update autoconfig.xml: $output"
+log "Virtualmin autoconfig enabled and STARTTLS hard-coded"
 
-# Check config?
+output=$(virtualmin modify-template --id 0 --setting autodiscover --value "$(cat ./resources/autodiscover.xml | tr '\n' ' ')")
+log "Virtualmin Update autodiscover.xml: $output"
+
 
 # fin
-echo "${log_prefix} Virtualmin Post-Install Wizard setup complete" >> ./RALVIN.log
+log "Virtualmin Post-Install Wizard setup complete"
 
 
 
@@ -761,35 +902,42 @@ echo "${log_prefix} Virtualmin Post-Install Wizard setup complete" >> ./RALVIN.l
 # ╚═════╝ ╚══════╝╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝       ╚═════╝  ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
 #
 # Logging
-log_prefix="RALVIN | create-default-domain |"
+log_prefix="|| create-default-domain |"
 
 # Generate a random password for the default domain user account
 webmin_password=$(date +%s|sha256sum|sha256sum|base64|head -c 32)
 
 # Create a virtual site for the default domain
-virtualmin create-domain --domain "${fqdn_hostname}" --pass "${webmin_password}" --default-features
+output=$(virtualmin create-domain --domain "${fqdn_hostname}" --pass "${webmin_password}" --default-features)
+log "$output"
 
 declare HOME_DIR=$(virtualmin list-domains | grep "${fqdn_hostname}" | awk -F" " '{print $2}')
 
-if [ ! -z "$HOME_DIR" ]; then
+if [ -n "$HOME_DIR" ]; then
 	# Copy default server status page
 	cp ./resources/index.html "/home/${HOME_DIR}/public_html/index.html"
-	echo "${log_prefix} Created /home/${HOME_DIR}/public_html/index.html" >> ./RALVIN.log
+	log "Created /home/${HOME_DIR}/public_html/index.html"
 	
 	# Update status page with correct domain
 	sed -i -e "s/example\.com/${fqdn_hostname}/g" "/home/${HOME_DIR}/public_html/index.html"
 fi
 
 # Generate and install lets encrypt certificate
-virtualmin generate-letsencrypt-cert --domain "$1" >> RALVIN.ssl.log
+output=$(virtualmin generate-letsencrypt-cert --domain "$1" >> RALVIN.ssl.log)
+log "$output"
 
-virtualmin install-service-cert --domain "$1" --service postfix >> RALVIN.ssl.log
-virtualmin install-service-cert --domain "$1" --service usermin >> RALVIN.ssl.log
-virtualmin install-service-cert --domain "$1" --service webmin >> RALVIN.ssl.log
-virtualmin install-service-cert --domain "$1" --service dovecot >> RALVIN.ssl.log
-virtualmin install-service-cert --domain "$1" --service proftpd >> RALVIN.ssl.log
+output=$(virtualmin install-service-cert --domain "$1" --service postfix >> RALVIN.ssl.log)
+log "$output"
+output=$(virtualmin install-service-cert --domain "$1" --service usermin >> RALVIN.ssl.log)
+log "$output"
+output=$(virtualmin install-service-cert --domain "$1" --service webmin >> RALVIN.ssl.log)
+log "$output"
+output=$(virtualmin install-service-cert --domain "$1" --service dovecot >> RALVIN.ssl.log)
+log "$output"
+output=$(virtualmin install-service-cert --domain "$1" --service proftpd >> RALVIN.ssl.log)
+log "$output"
 
-echo "${log_prefix} LetsEncrypt certificate requested and copied to services (see RALVIN.ssl.log for more info)" >> ./RALVIN.log
+log "LetsEncrypt certificate requested and copied to services (see RALVIN.ssl.log for more info)"
 
 
 
@@ -801,17 +949,21 @@ echo "${log_prefix} LetsEncrypt certificate requested and copied to services (se
 # ╚═╝     ╚═╝  ╚═╝╚═╝         ╚═╝╚═╝  ╚═══╝╚═╝       ╚═╝    ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
 #
 # Logging
-log_prefix="RALVIN | php-ini-tweaks |"
+log_prefix="|| php-ini-tweaks |"
 
 # Add PHP 8.1 php.ini to webmin
-echo "/etc/opt/remi/php81/php.ini" | sudo tee -a /etc/webmin/phpini/config
-echo $(sudo head -c -1 /etc/webmin/phpini/config) | sudo tee /etc/webmin/phpini/config
-echo "${log_prefix} Added PHP 8.1 php.ini to Webmin" >> ./RALVIN.log
+echo "/etc/opt/remi/php81/php.ini" | sudo tee -a /etc/webmin/phpini/config > /dev/null
+echo $(sudo head -c -1 /etc/webmin/phpini/config) | sudo tee /etc/webmin/phpini/config > /dev/null
+log "Added PHP 8.1 php.ini to Webmin"
 
 # Tweaks various settings for php.ini
-virtualmin modify-php-ini --all-domains --ini-name upload_max_filesize --ini-value 32M
-virtualmin modify-php-ini --all-domains --ini-name post_max_size  --ini-value 32M
-echo "${log_prefix} upload_max_filesize and post_max_size set to 32M" >> ./RALVIN.log
+output=$(virtualmin modify-php-ini --all-domains --ini-name upload_max_filesize --ini-value 32M)
+log "$output"
+
+output=$(virtualmin modify-php-ini --all-domains --ini-name post_max_size  --ini-value 32M)
+log "$output"
+
+log "upload_max_filesize and post_max_size set to 32M"
 
 # Add GNU Terry Pratchett 
 tee -a /etc/httpd/conf/httpd.conf > /dev/null <<EOT
@@ -824,10 +976,11 @@ tee -a /etc/httpd/conf/httpd.conf > /dev/null <<EOT
 </IfModule>
 EOT
 
-echo "${log_prefix} Added GNU Terry Pratchett to httpd.conf" >> ./RALVIN.log
+log "Added GNU Terry Pratchett to httpd.conf"
 
 # Restart apache
 systemctl restart httpd
+log "Restarted httpd service"
 
 
 
@@ -841,21 +994,41 @@ systemctl restart httpd
 # Installs the required packages to enable Google Authenticator 2FA for Webmin
 # 
 # Logging
-log_prefix="RALVIN | enable-2fa |"
+log_prefix="|| enable-2fa |"
+
+: '
 
 # Copy the CPAN config file
-[[ ! -e "/root/.cpan/CPAN" ]] && mkdir -p /root/.cpan/CPAN && echo "${log_prefix} Made CPAN directory" >> ./RALVIN.log
-[[ ! -e "/root/.cpan/CPAN/MyConfig.pm" ]] && cp ./resources/CPAN.pm /root/.cpan/CPAN/MyConfig.pm && chown root /root/.cpan/CPAN/MyConfig.pm && echo "${log_prefix} Copied CPAN config from template" >> ./RALVIN.log
+log [ ! -e "/root/.cpan/CPAN" ] && mkdir -p /root/.cpan/CPAN && log "Made CPAN directory"
+log [ ! -e "/root/.cpan/CPAN/MyConfig.pm" ] && cp ./resources/CPAN.pm /root/.cpan/CPAN/MyConfig.pm && chown root /root/.cpan/CPAN/MyConfig.pm && log "Copied CPAN config from template"
+
+# Update CPAN
+cpan install CPAN
 
 # Install the right modules
-PACKAGES="Archive::Tar Authen::OATH Digest::HMAC Digest::SHA Math::BigInt Moo Moose Module::Build Test::More Test::Needs Type::Tiny Types::Standard"
-cpan install $PACKAGES
-echo "${log_prefix} Installed perl packages" >> ./RALVIN.log
+PACKAGES=(
+	Archive::Tar
+	Authen::OATH
+	Digest::HMAC
+	Digest::SHA
+	Math::BigInt
+	Moo
+	Moose
+	Module::Build
+	Test::More
+	Test::Needs
+	Type::Tiny
+	Types::Standard
+)
+log "Installing perl packages: ${PACKAGES[*]}"
+cpan install "${PACKAGES[@]}"
+log "Install finised"
 
 # Enable Google Authenticator
-echo "twofactor_provider=totp" | sudo tee -a /etc/webmin/miniserv.conf
-echo "${log_prefix} Enabled Google Authenticator 2FA for Webmin. You will need to enroll a user manually." >> ./RALVIN.log
+echo "twofactor_provider=totp" | sudo tee -a /etc/webmin/miniserv.conf > /dev/null
+log "Enabled Google Authenticator 2FA for Webmin. You will need to enroll a user manually."
 
+'
 
 
 # ██╗  ██╗ █████╗ ██████╗ ██████╗ ███████╗███╗   ██╗    ██████╗  ██████╗ ███████╗████████╗███████╗██╗██╗  ██╗
@@ -868,11 +1041,11 @@ echo "${log_prefix} Enabled Google Authenticator 2FA for Webmin. You will need t
 # Hardens a default Postfix install
 #
 # Logging
-log_prefix="RALVIN | harden-postfix |"
+log_prefix="|| harden-postfix |"
 
 # Backup the current/default config
-postconf | sudo tee /root/postfix.main.cf.$(date "+%F-%T")
-echo "${log_prefix} Backed up original config to /root/postfix.main.cf.$(date "+%F-%T")" >> ./RALVIN.log
+postconf | sudo tee /root/postfix.main.cf.$(date "+%F-%T") > /dev/null
+log "Backed up original config to /root/postfix.main.cf.$(date "+%F-%T")"
 
 # Disable verify - stop clients querying for valid users
 postconf -e 'disable_vrfy_command = yes'
@@ -901,21 +1074,27 @@ postconf -e 'smtpd_sender_restrictions = permit_mynetworks permit_sasl_authentic
 postconf -e 'smtpd_sasl_security_options = noanonymous'
 
 # Reload postfix
-postfix reload
+postfix reload > /dev/null
 systemctl restart postfix
-echo "${log_prefix} Postfix hardened and reloaded" >> ./RALVIN.log
+log "Postfix hardened and reloaded"
 
 
 printf "\n"
 printf "|| RALVIN has completed \n"
 printf "|| ========================================================\n"
-printf "|| FQDN:                           ${fqdn_hostname} \n"
+printf "|| FQDN hostname:                  ${fqdn_hostname} \n"
+printf "|| SSH port:                       ${ssh_custom_port} \n"
 printf "|| Sudo user:                      ${sudo_user_name} \n"
 printf "|| Sudo password:                  ${sudo_user_password} \n"
-printf "|| Public key:                     ${sudo_user_pubkey} \n"
-printf "|| MySQL root password:            ${myqsl_root_password} \n"
-printf "|| Webmin default domain password: ${webmin_password} \n"
-printf "|| Virtualmin user:                ${virtualmin_user_name} \n"
+printf "|| Sudo user pubkey:               ${sudo_user_pubkey} \n"
+printf "|| MySQL root password:            ${mysql_root_password} \n"
+printf "|| Virtualmin user:                ${virtualmin_user} \n"
 printf "|| Virtualmin password:            ${virtualmin_password} \n"
 printf "|| Virtualmin panel:               https://${fqdn_hostname}:10000 \n"
 
+if [ -n "$aws_access_key" ]; then
+	printf "|| AWS Access key:                 ${aws_access_key} \n"
+fi
+if [ -n "$aws_secret_key" ]; then
+	printf "|| AWS Secret key:                 ${aws_secret_key} \n"
+fi

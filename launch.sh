@@ -8,13 +8,13 @@ sudo dnf install -y -q git
 git clone https://github.com/stom66/ralvin/ ralvin && cd ralvin
 chmod +x ralvin.sh
 sudo ./ralvin.sh \
-	--domain "example.domain.com" \
-	--ssh-port 2022 \
+	--fqdn-hostname "example.domain.tld" \
+	--ssh-custom-port 22 \
 	--sudo-user-name "rocky" \
-	--sudo-user-password "yourPassword1" \
-	--sudo-user-pubkey "ssh-ed25520 yourkeygoeshere" \
-	--virtualmin-user root \
-	--virtualmin-password "yourPassword1" \
-	--mysql-password "yourPassword3" \
+	--sudo-user-password "password1" \
+	--sudo-user-pubkey "sshpublickeykey" \
+	--virtualmin-user "root" \
+	--virtualmin-password "password2" \
+	--mysql-root-password "password3" \
 	--aws-access-key "EXAMPLEACCESSKEY" \
 	--aws-secret-key "EXAMPLESECRETKEY"

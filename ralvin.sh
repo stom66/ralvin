@@ -462,20 +462,20 @@ log "Finished installing"
 # Logging
 log_prefix="|| aws-cli |"
 
-# Fetch and install AWS CLI v2
-if [ ! -f /usr/local/bin/aws ]; then
-    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
-    unzip -o -q awscliv2.zip
-    rm awscliv2.zip
-    sudo ./aws/install
-    rm -rf ./aws
-    log "Installed aws-cli $(/usr/local/bin/aws --version)"
-else
-	log "aws-cli is already installed"
-fi
 
-# add aws-cli credentials if provided
-if [[ -n "${aws_access_key}" && -n "${aws_secret_key}" ]]; then
+if [[ -n "${aws_access_key}" ] && [ -n "${aws_secret_key}" ]]; then
+	# Fetch and install AWS CLI v2
+	if [ ! -f /usr/local/bin/aws ]; then
+		curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+		unzip -o -q awscliv2.zip
+		rm awscliv2.zip
+		sudo ./aws/install
+		rm -rf ./aws
+		log "Installed aws-cli $(/usr/local/bin/aws --version)"
+	else
+		log "aws-cli is already installed"
+	fi
+
     declare INSTANCE_REGION
     declare INSTANCE_ID
     declare INSTANCE_NAME
@@ -532,7 +532,7 @@ if [[ -n "${aws_access_key}" && -n "${aws_secret_key}" ]]; then
         fi
     done
 else
-    log "No AWS CLI credentials provided. Unable to configure ports"
+    log "No AWS CLI credentials provided. Skipping aws-cli"
 fi
 
 
@@ -762,7 +762,7 @@ log "finished install with hostname ${fqdn_hostname}"
 
 
 # Update the password
-if [[ -n $virtualmin_user && -n $virtualmin_password ]]; then
+if [[ -n $virtualmin_user ] && [ -n $virtualmin_password ]]; then
 	sudo /usr/libexec/webmin/changepass.pl /etc/webmin $virtualmin_user $virtualmin_password
 	log "password updated for Virtualmin user ${virtualmin_user}"
 fi
@@ -803,8 +803,8 @@ sed -i 's/mysql=.*/mysql=1/' $CONFIG
 # Update password for MySQL root user
 # This needs to be done BEFORE you upgrade to MariaDB 10.4+ due to the bug described at https://www.virtualmin.com/node/64694
 if [ -n "${mysql_root_password}" ]; then
-	virtualmin set-mysql-pass --user root --pass "${mysql_root_password}"
-	log "Updated root password for MySQL"
+	output=$(virtualmin set-mysql-pass --user root --pass "${mysql_root_password}")
+	log "Updated root password for MySQL: $output"
 fi
 
 # Set MySQL server memory size
@@ -994,14 +994,9 @@ log "Restarted httpd service"
 # Logging
 log_prefix="|| enable-2fa |"
 
-: '
-
 # Copy the CPAN config file
-log [ ! -e "/root/.cpan/CPAN" ] && mkdir -p /root/.cpan/CPAN && log "Made CPAN directory"
-log [ ! -e "/root/.cpan/CPAN/MyConfig.pm" ] && cp ./resources/CPAN.pm /root/.cpan/CPAN/MyConfig.pm && chown root /root/.cpan/CPAN/MyConfig.pm && log "Copied CPAN config from template"
-
-# Update CPAN
-cpan install CPAN
+log "Installing cpanminus"
+dnf install -q -y cpanminus
 
 # Install the right modules
 PACKAGES=(
@@ -1018,15 +1013,15 @@ PACKAGES=(
 	Type::Tiny
 	Types::Standard
 )
+
 log "Installing perl packages: ${PACKAGES[*]}"
-cpan install "${PACKAGES[@]}"
-log "Install finised"
+cpanm install -q "${PACKAGES[@]}"
+log "Install finished"
 
 # Enable Google Authenticator
 echo "twofactor_provider=totp" | sudo tee -a /etc/webmin/miniserv.conf > /dev/null
 log "Enabled Google Authenticator 2FA for Webmin. You will need to enroll a user manually."
 
-'
 
 
 # ██╗  ██╗ █████╗ ██████╗ ██████╗ ███████╗███╗   ██╗    ██████╗  ██████╗ ███████╗████████╗███████╗██╗██╗  ██╗

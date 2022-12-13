@@ -923,18 +923,18 @@ if [ -n "$HOME_DIR" ]; then
 fi
 
 # Generate and install lets encrypt certificate
-output=$(virtualmin generate-letsencrypt-cert --domain "$1" >> RALVIN.ssl.log)
+output=$(virtualmin generate-letsencrypt-cert --domain "$1")
 log "$output"
 
-output=$(virtualmin install-service-cert --domain "$1" --service postfix >> RALVIN.ssl.log)
+output=$(virtualmin install-service-cert --domain "$1" --service postfix)
 log "$output"
-output=$(virtualmin install-service-cert --domain "$1" --service usermin >> RALVIN.ssl.log)
+output=$(virtualmin install-service-cert --domain "$1" --service usermin)
 log "$output"
-output=$(virtualmin install-service-cert --domain "$1" --service webmin >> RALVIN.ssl.log)
+output=$(virtualmin install-service-cert --domain "$1" --service webmin)
 log "$output"
-output=$(virtualmin install-service-cert --domain "$1" --service dovecot >> RALVIN.ssl.log)
+output=$(virtualmin install-service-cert --domain "$1" --service dovecot)
 log "$output"
-output=$(virtualmin install-service-cert --domain "$1" --service proftpd >> RALVIN.ssl.log)
+output=$(virtualmin install-service-cert --domain "$1" --service proftpd)
 log "$output"
 
 log "LetsEncrypt certificate requested and copied to services (see RALVIN.ssl.log for more info)"
@@ -958,12 +958,10 @@ log "Added PHP 8.1 php.ini to Webmin"
 
 # Tweaks various settings for php.ini
 output=$(virtualmin modify-php-ini --all-domains --ini-name upload_max_filesize --ini-value 32M)
-log "$output"
+log "Setting upload_max_filesize to 32M: $output"
 
 output=$(virtualmin modify-php-ini --all-domains --ini-name post_max_size  --ini-value 32M)
-log "$output"
-
-log "upload_max_filesize and post_max_size set to 32M"
+log "Setting post_max_size to 32M: $output"
 
 # Add GNU Terry Pratchett 
 tee -a /etc/httpd/conf/httpd.conf > /dev/null <<EOT
@@ -1074,9 +1072,11 @@ postconf -e 'smtpd_sender_restrictions = permit_mynetworks permit_sasl_authentic
 postconf -e 'smtpd_sasl_security_options = noanonymous'
 
 # Reload postfix
-postfix reload > /dev/null
+output=$(postfix reload > /dev/null)
+log "Reloading postfix: $output"
+
 systemctl restart postfix
-log "Postfix hardened and reloaded"
+log "Postfix hardened and restarted"
 
 
 printf "\n"

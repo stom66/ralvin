@@ -264,7 +264,7 @@ log ""
 # Logging
 log_prefix="|| create-sudo-user |"
 
-if [ -n "${sudo_user_name}" ] && [ -n "${sudo_user_password}" ]; then
+if [[ -n "${sudo_user_name}" && -n "${sudo_user_password}" ]]; then
 
 	# Check if the user account already exists
 	if id "${sudo_user_name}" & > /dev/null; then
@@ -462,8 +462,9 @@ log "Finished installing"
 # Logging
 log_prefix="|| aws-cli |"
 
+# Check we have AWS api credentials
+if [[ -n "${aws_access_key}" && -n "${aws_secret_key}" ]]; then
 
-if [[ -n "${aws_access_key}" ] && [ -n "${aws_secret_key}" ]]; then
 	# Fetch and install AWS CLI v2
 	if [ ! -f /usr/local/bin/aws ]; then
 		curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
@@ -762,7 +763,7 @@ log "finished install with hostname ${fqdn_hostname}"
 
 
 # Update the password
-if [[ -n $virtualmin_user ] && [ -n $virtualmin_password ]]; then
+if [[ -n "${virtualmin_user}" && -n "${virtualmin_password}" ]]; then
 	sudo /usr/libexec/webmin/changepass.pl /etc/webmin $virtualmin_user $virtualmin_password
 	log "password updated for Virtualmin user ${virtualmin_user}"
 fi
@@ -801,7 +802,7 @@ fi
 sed -i 's/mysql=.*/mysql=1/' $CONFIG
 
 # Update password for MySQL root user
-# This needs to be done BEFORE you upgrade to MariaDB 10.4+ due to the bug described at https://www.virtualmin.com/node/64694
+# This needs to be done BEFORE you upgrade to MariaDB 10.5+ due to the bug described at https://www.virtualmin.com/node/64694
 if [ -n "${mysql_root_password}" ]; then
 	output=$(virtualmin set-mysql-pass --user root --pass "${mysql_root_password}")
 	log "Updated root password for MySQL: $output"

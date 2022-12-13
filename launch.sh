@@ -5,8 +5,10 @@
 
 
 sudo dnf install -y -q git
+
 git clone https://github.com/stom66/ralvin/ ralvin && cd ralvin
 chmod +x ralvin.sh
+
 sudo ./ralvin.sh \
 	--fqdn-hostname "example.domain.tld" \
 	--ssh-custom-port 22 \
